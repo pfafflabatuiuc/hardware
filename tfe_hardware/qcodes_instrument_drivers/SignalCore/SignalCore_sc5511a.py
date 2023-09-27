@@ -31,6 +31,8 @@ class Device_rf_params_t(ctypes.Structure):
 class Device_temperature_t(ctypes.Structure):
     _fields_ = [("device_temp", ctypes.c_float)]
 
+class Device_phase(ctypes.Structure):
+    _fields_ = [("device_phase", ctypes.c_float)]
 
 class Operate_status_t(ctypes.Structure):
     _fields_ = [("rf1_lock_mode", ctypes.c_ubyte),
@@ -90,7 +92,7 @@ class Device_info_t(ctypes.Structure):
 # End of Structures------------------------------------------------------------
 class SignalCore_SC5511A(Instrument):
 
-    dllpath = r"C:\Program Files\SignalCore\SC5511A\api\c\x64\sc5511a.dll"
+    dllpath = r"/home/pfafflab/Documents/drivers/Linux/libusb/lib/libsc5511a.so.1.0"
 
     def __init__(self, name: str, serial_number: str,
                  dllpath: Optional[str] = None, debug=False, **kwargs: Any):
@@ -113,6 +115,7 @@ class SignalCore_SC5511A(Instrument):
         self._status = Operate_status_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         self._open = False
         self._temperature = Device_temperature_t(0)
+        self._phase = Device_phase(0)
 
         self._pll_status = Pll_status_t()
         self._list_mode = List_mode_t()
@@ -297,6 +300,14 @@ class SignalCore_SC5511A(Instrument):
                            get_parser=float,
                            unit="C",
                            vals=Numbers(min_value=0, max_value=200))
+
+        self.add_parameter('phase',
+                           label='phase',
+                           get_cmd=self.do_get_phase,
+                           get_parser=float,
+                           set_cmd=self.do_set_phase,
+                           set_parser=float,
+                           unit='rad')
 
         if self._device_status.operate_status_t.ext_ref_lock_enable == 0:
             self.do_set_reference_source(1)
@@ -907,6 +918,36 @@ class SignalCore_SC5511A(Instrument):
         rf_level = self._rf_params.rf_level
         self._dll.sc5511a_close_device(self._handle)
         return rf_level
+
+    def do_set_phase(self, phase) -> None:
+        """
+        Set the phase of the generator in the unit of rad
+        """
+        logging.info(__name__ + ' : Setting phase to %s' % phase)
+        c_phase = ctypes.c_float(phase)
+        close = False
+        if not self._open:
+            self._handle = ctypes.c_void_p(self._dll.sc5511a_open_device(self._serial_number))
+            close = True
+        completed = self._dll.sc5511a_set_signal_phase(self._handle, c_phase)
+        if close:
+            self._dll.sc5511a_close_device(self._handle)
+        return completed
+
+    def do_get_phase(self) -> float:
+        """
+        Get the phase of the generator in the unit of rad
+        """
+        logging.info(__name__ + ' : Getting phase')
+        self._handle = ctypes.c_void_p(self._dll.sc5511a_open_device(self._serial_number))
+        self._dll.sc5511a_get_signal_phase(self._handle, ctypes.byref(self._phase))
+        phase = self._phase.device_phase
+        self._dll.sc5511a_close_device(self._handle)
+        return phase
+    
+
+
+
 
     def do_set_auto_level_disable(self, enable) -> None:
         """
